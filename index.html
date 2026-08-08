@@ -6,6 +6,7 @@
   <title>IDC Inspection Assistant</title>
   <meta name="theme-color" content="#0c0c1c">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <style>
     * { box-sizing: border-box; }
@@ -531,53 +532,65 @@
     function exportDetailExcel() {
       if (records.length === 0) { showToast('No records to export', true); return; }
 
-      const wb = XLSX.utils.book_new();
-      const wsData = [['Time', 'Cabinet/Device Code', 'Inspector', 'Result', 'Issue Type', 'Status', 'Close Time', 'Notes', 'Photo']];
+      const workbook = new ExcelJS.Workbook();
+      const ws = workbook.addWorksheet('Inspection Detail');
 
-      records.forEach((r, i) => {
-        wsData.push([
-          r.createTime,
-          r.qrCode,
-          r.inspector,
-          r.result,
-          r.abnormalType || '-',
-          r.status,
-          r.closeTime || '-',
-          r.remark || '-',
-          r.photo ? 'Yes' : 'No'
-        ]);
-      });
-
-      const ws = XLSX.utils.aoa_to_sheet(wsData);
-
-      // Set column widths
-      ws['!cols'] = [
-        {wch:20},{wch:22},{wch:15},{wch:10},{wch:20},{wch:10},{wch:20},{wch:30},{wch:8}
+      // Header row
+      ws.columns = [
+        { header: 'Time', key: 'time', width: 22 },
+        { header: 'Cabinet/Device Code', key: 'code', width: 22 },
+        { header: 'Inspector', key: 'inspector', width: 15 },
+        { header: 'Result', key: 'result', width: 12 },
+        { header: 'Issue Type', key: 'issue', width: 20 },
+        { header: 'Status', key: 'status', width: 12 },
+        { header: 'Close Time', key: 'closeTime', width: 22 },
+        { header: 'Notes', key: 'notes', width: 30 },
+        { header: 'Photo', key: 'photo', width: 30 }
       ];
 
-      // Embed photos as images in the worksheet
-      if (!ws['!images']) ws['!images'] = [];
+      // Style header
+      ws.getRow(1).font = { bold: true };
+      ws.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF333333' } };
+      ws.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+
       records.forEach((r, i) => {
+        const rowNum = i + 2;
+        ws.addRow({
+          time: r.createTime,
+          code: r.qrCode,
+          inspector: r.inspector,
+          result: r.result,
+          issue: r.abnormalType || '-',
+          status: r.status,
+          closeTime: r.closeTime || '-',
+          notes: r.remark || '-',
+          photo: r.photo ? '' : 'No photo'
+        });
+
         if (r.photo) {
           const base64Data = r.photo.split(',')[1];
-          ws['!images'].push({
-            '!pos': { r: i + 1, c: 9, x: 0, y: 0, w: 200, h: 150 },
-            '!datatype': 'base64',
-            '!data': base64Data,
-            '!type': 'image/jpeg'
+          const imageId = workbook.addImage({
+            base64: base64Data,
+            extension: 'jpeg'
           });
+          ws.addImage(imageId, {
+            tl: { col: 8, row: rowNum - 1 },
+            ext: { width: 200, height: 130 }
+          });
+          ws.getRow(rowNum).height = 100;
         }
       });
 
-      // Set row heights for rows with photos
-      ws['!rows'] = [{}];
-      records.forEach((r, i) => {
-        ws['!rows'].push(r.photo ? { hpt: 120 } : {});
+      workbook.xlsx.writeBuffer().then(buffer => {
+        const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `IDC_Inspection_Detail_${new Date().toISOString().slice(0,10)}.xlsx`;
+        a.click();
+        URL.revokeObjectURL(url);
+        showToast('Detail Excel exported with photos');
       });
-
-      XLSX.utils.book_append_sheet(wb, ws, 'Inspection Detail');
-      XLSX.writeFile(wb, `IDC_Inspection_Detail_${new Date().toISOString().slice(0,10)}.xlsx`);
-      showToast('Detail Excel exported');
     }
 
     function exportSummaryJson() {
