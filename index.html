@@ -221,6 +221,19 @@
         <textarea id="remark" placeholder="Describe the issue and action when abnormal"></textarea>
       </div>
 
+      <div class="field" style="margin-top:12px;">
+        <label>Rack Photo</label>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <button class="secondary" type="button" onclick="capturePhoto()">Take Photo</button>
+          <span id="photoStatus" style="font-size:11px;color:#555;">No photo</span>
+        </div>
+        <input type="file" id="photoInput" accept="image/*" capture="environment" style="display:none;" onchange="handlePhotoSelected(event)">
+        <div id="photoPreview" style="margin-top:8px;display:none;">
+          <img id="photoThumb" style="max-width:100%;max-height:160px;border-radius:8px;border:1px solid rgba(255,255,255,.08);">
+          <button class="danger" style="margin-top:6px;padding:4px 10px;font-size:11px;" onclick="removePhoto()">Remove Photo</button>
+        </div>
+      </div>
+
       <div class="mode-row">
         <label class="toggle">
           <input type="checkbox" id="continuousMode" checked onchange="toggleContinuousMode()">
@@ -348,6 +361,53 @@
 
     function onScanFailure(error) {}
 
+    // ========== Photo Capture ==========
+    let currentPhoto = null; // base64 data URL
+
+    function capturePhoto() {
+      document.getElementById('photoInput').click();
+    }
+
+    function handlePhotoSelected(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        // Resize to max 800px to keep Excel file size reasonable
+        const img = new Image();
+        img.onload = function() {
+          const canvas = document.createElement('canvas');
+          const maxW = 800, maxH = 600;
+          let w = img.width, h = img.height;
+          if (w > maxW || h > maxH) {
+            const ratio = Math.min(maxW / w, maxH / h);
+            w = Math.round(w * ratio);
+            h = Math.round(h * ratio);
+          }
+          canvas.width = w;
+          canvas.height = h;
+          canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+          currentPhoto = canvas.toDataURL('image/jpeg', 0.7);
+
+          document.getElementById('photoThumb').src = currentPhoto;
+          document.getElementById('photoPreview').style.display = 'block';
+          document.getElementById('photoStatus').textContent = 'Photo captured';
+          document.getElementById('photoStatus').style.color = '#2fa84f';
+        };
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
+      event.target.value = '';
+    }
+
+    function removePhoto() {
+      currentPhoto = null;
+      document.getElementById('photoPreview').style.display = 'none';
+      document.getElementById('photoStatus').textContent = 'No photo';
+      document.getElementById('photoStatus').style.color = '#555';
+    }
+
     // ========== Core Logic ==========
     function showToast(msg, isError) {
       const t = document.getElementById('toast');
@@ -403,6 +463,7 @@
         result,
         abnormalType: result === 'Abnormal' ? abnormalType : '',
         remark,
+        photo: currentPhoto || '',
         status: result === 'Abnormal' ? 'Pending' : 'Closed',
         createTime: new Date().toLocaleString('en-US'),
         closeTime: result === 'Normal' ? new Date().toLocaleString('en-US') : ''
@@ -413,6 +474,7 @@
       document.getElementById('remark').value = '';
       document.getElementById('result').value = 'Normal';
       document.getElementById('abnormalType').disabled = true;
+      removePhoto();
       render();
       showToast('Record added');
       focusQrCode();
@@ -438,19 +500,20 @@
 
       if (records.length === 0) { area.innerHTML = '<div class="empty">No records yet. Scan a code to add one.</div>'; return; }
 
-      let html = '<div class="table-wrap"><table><thead><tr><th>Time</th><th>Code</th><th>Inspector</th><th>Result</th><th>Issue</th><th>Status</th><th>Notes</th><th>Action</th></tr></thead><tbody>';
+      let html = '<div class="table-wrap"><table><thead><tr><th>Time</th><th>Code</th><th>Inspector</th><th>Result</th><th>Issue</th><th>Photo</th><th>Status</th><th>Action</th></tr></thead><tbody>';
       records.slice().reverse().forEach(r => {
         const resultTag = r.result === 'Normal' ? '<span class="tag tag-normal">Normal</span>' : '<span class="tag tag-abnormal">Abnormal</span>';
         const statusTag = r.status === 'Closed' ? '<span class="tag tag-closed">Closed</span>' : '<span class="tag tag-pending">Pending</span>';
         const closeBtn = r.status === 'Pending' ? `<button class="secondary" style="padding:4px 8px;font-size:11px;" onclick="closeRecord('${r.id}')">Close</button>` : '';
+        const photoIcon = r.photo ? '<span style="color:#2fa84f;cursor:pointer;" onclick="viewPhoto(\'' + r.id + '\')">view</span>' : '-';
         html += `<tr>
           <td>${r.createTime}</td>
           <td style="color:#ff9a44;font-weight:600;">${r.qrCode}</td>
           <td>${r.inspector}</td>
           <td>${resultTag}</td>
           <td>${r.abnormalType || '-'}</td>
+          <td>${photoIcon}</td>
           <td>${statusTag}</td>
-          <td>${r.remark || '-'}</td>
           <td style="white-space:nowrap;">${closeBtn} <button class="danger" style="padding:4px 8px;font-size:11px;" onclick="deleteRecord('${r.id}')">Del</button></td>
         </tr>`;
       });
@@ -458,19 +521,60 @@
       area.innerHTML = html;
     }
 
+    function viewPhoto(id) {
+      const r = records.find(x => x.id === id);
+      if (!r || !r.photo) return;
+      const win = window.open('', '_blank');
+      win.document.write(`<html><head><title>Photo - ${r.qrCode}</title><style>body{margin:0;background:#0c0c1c;display:flex;align-items:center;justify-content:center;min-height:100vh;}</style></head><body><img src="${r.photo}" style="max-width:100%;max-height:100vh;"></body></html>`);
+    }
+
     function exportDetailExcel() {
       if (records.length === 0) { showToast('No records to export', true); return; }
-      const ws = XLSX.utils.json_to_sheet(records.map(r => ({
-        'Time': r.createTime,
-        'Cabinet/Device Code': r.qrCode,
-        'Inspector': r.inspector,
-        'Result': r.result,
-        'Issue Type': r.abnormalType || '-',
-        'Status': r.status,
-        'Close Time': r.closeTime,
-        'Notes': r.remark || '-'
-      })));
+
       const wb = XLSX.utils.book_new();
+      const wsData = [['Time', 'Cabinet/Device Code', 'Inspector', 'Result', 'Issue Type', 'Status', 'Close Time', 'Notes', 'Photo']];
+
+      records.forEach((r, i) => {
+        wsData.push([
+          r.createTime,
+          r.qrCode,
+          r.inspector,
+          r.result,
+          r.abnormalType || '-',
+          r.status,
+          r.closeTime || '-',
+          r.remark || '-',
+          r.photo ? 'Yes' : 'No'
+        ]);
+      });
+
+      const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+      // Set column widths
+      ws['!cols'] = [
+        {wch:20},{wch:22},{wch:15},{wch:10},{wch:20},{wch:10},{wch:20},{wch:30},{wch:8}
+      ];
+
+      // Embed photos as images in the worksheet
+      if (!ws['!images']) ws['!images'] = [];
+      records.forEach((r, i) => {
+        if (r.photo) {
+          const base64Data = r.photo.split(',')[1];
+          ws['!images'].push({
+            '!pos': { r: i + 1, c: 9, x: 0, y: 0, w: 200, h: 150 },
+            '!datatype': 'base64',
+            '!data': base64Data,
+            '!type': 'image/jpeg'
+          });
+        }
+      });
+
+      // Set row heights for rows with photos
+      ws['!rows'] = [{}];
+      records.forEach((r, i) => {
+        ws['!rows'].push(r.photo ? { hpt: 120 } : {});
+      });
+
       XLSX.utils.book_append_sheet(wb, ws, 'Inspection Detail');
       XLSX.writeFile(wb, `IDC_Inspection_Detail_${new Date().toISOString().slice(0,10)}.xlsx`);
       showToast('Detail Excel exported');
