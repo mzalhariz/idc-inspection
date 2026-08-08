@@ -233,15 +233,15 @@
         </div>
         <div class="field">
           <label>Issue Type</label>
-          <input type="text" id="abnormalType" list="abnormalTypeList" placeholder="Type or select an issue type" disabled>
-          <datalist id="abnormalTypeList">
-            <option value="Temperature / Humidity">
-            <option value="Power">
-            <option value="AC / Cooling">
-            <option value="Physical Damage">
-            <option value="Network">
-            <option value="Other">
-          </datalist>
+          <select id="abnormalType" disabled>
+            <option value="">-- Select issue type --</option>
+            <option value="Temperature / Humidity">Temperature / Humidity</option>
+            <option value="Power">Power</option>
+            <option value="AC / Cooling">AC / Cooling</option>
+            <option value="Physical Damage">Physical Damage</option>
+            <option value="Network">Network</option>
+            <option value="Other">Other</option>
+          </select>
         </div>
       </div>
 
@@ -368,6 +368,9 @@
       if (decodedText === lastScannedCode && (now - lastScanTime) < 3000) return;
       lastScannedCode = decodedText;
       lastScanTime = now;
+
+      // Vibrate on successful scan
+      if (navigator.vibrate) navigator.vibrate(200);
 
       const resultDiv = document.getElementById('scanResult');
       resultDiv.style.display = 'block';
